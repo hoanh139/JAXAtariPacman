@@ -107,32 +107,43 @@ def _get_sprite_lookup() -> chex.Array:
 
 
 class PacmanConstants(NamedTuple):
-    # Screen dimensions (Atari 2600 Pacman uses 224x288)
+    # Screen dimensions (Arcade Pac-Man uses 224x288)
     WIDTH: int = 224
-    HEIGHT: int = 288  # 36 tiles * 8 pixels
+    HEIGHT: int = 288
     
-    # Tile size for maze (8x8 pixels per tile)
-    TILE_SIZE: int = 8
-    
-    # Maze dimensions in tiles (224/8 = 28, 288/8 = 36)
-    MAZE_WIDTH: int = 28  # 28 tiles wide
-    MAZE_HEIGHT: int = 36  # 36 tiles tall
+    # Maze dimensions (in tiles)
+    TILE_SIZE: int = 8  # Each tile is 8x8 pixels
+    MAZE_HEIGHT: int = 36  # 36 tiles tall (288 / 8 = 36)
+    MAZE_WIDTH: int = 28  # 28 tiles wide (224 / 8 = 28)
     
     # Player constants
+    # Using integer pixel-per-frame speeds for node-based movement
+    # Float speeds cause collision detection issues when cast to int
     PLAYER_SIZE: Tuple[int, int] = (8, 8)
-    PLAYER_SPEED: int = 1  # pixels per step
+    PLAYER_SPEED: int = 1  # pixels per frame
     PLAYER_START_X: int = 112  # Center of maze (224/2 = 112)
     PLAYER_START_Y: int = 280  # Bottom area (near bottom of 288 height)
     
-    # Ghost constants
+    # Ghost speeds as integers to maintain collision integrity
+    # In original Pac-Man, frightened ghosts move at 50% speed
     GHOST_SIZE: Tuple[int, int] = (8, 8)
-    GHOST_SPEED_NORMAL: int = 1
-    GHOST_SPEED_FRIGHTENED: int = 1
-    GHOST_SPEED_EATEN: int = 2
+    GHOST_SPEED_NORMAL: int = 1  # Same as player
+    GHOST_SPEED_FRIGHTENED: int = 1  # 50% would be too slow (0.5 rounds to 0), keep at 1
+    GHOST_SPEED_EATEN: int = 2  # Double speed when returning to house
     
-    # Ghost starting positions (in ghost house area)
-    GHOST_START_X: int = 112  # Center of maze (224/2 = 112)
-    GHOST_START_Y: int = 144  # Adjusted for new map size (approximately center vertically)
+    # Ghost starting positions - spread them out to avoid all starting in house
+    # Blinky (Red) starts outside house, others inside but at different positions
+    GHOST_START_POSITIONS: Tuple[Tuple[int, int], ...] = (
+        (96, 112),   # Blinky: node 23 (above house, ready to chase)
+        (96, 120),   # Pinky: node 26 (house entrance)
+        (112, 120),  # Inky: node 28 (inside house)
+        (120, 120),  # Clyde: node 29 (inside house)
+    )
+    
+    # Ghost house spawn/exit node - where ghosts must reach to exit house
+    SPAWN_NODE_IDX: int = 23  # Node above ghost house
+    GHOST_HOUSE_MIN_NODE: int = 26  # First node of ghost house area
+    GHOST_HOUSE_MAX_NODE: int = 33  # Last node of ghost house area
     
     # Ghost colors (RGB)
     GHOST_BLINKY_COLOR: Tuple[int, int, int] = (255, 0, 0)  # Red
@@ -369,19 +380,39 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         # Initialize ghosts (4 ghosts at starting positions)
         ghosts = jnp.zeros((4, 8), dtype=jnp.int32)
         for i in range(4):
-            ghost_x = self.consts.GHOST_START_X + i * 8
-            ghost_y = self.consts.GHOST_START_Y
+            # Use individual starting position for each ghost
+            ghost_x, ghost_y = self.consts.GHOST_START_POSITIONS[i]
             # Find nearest node for this ghost
             ghost_node_idx = self._find_nearest_node_idx(ghost_x, ghost_y)
             
             ghosts = ghosts.at[i, 0].set(self.node_positions_x[ghost_node_idx])  # x at node
             ghosts = ghosts.at[i, 1].set(self.node_positions_y[ghost_node_idx])  # y at node
             ghosts = ghosts.at[i, 2].set(0)  # direction (right)
-            ghosts = ghosts.at[i, 3].set(0)  # state (normal)
+            
+            # Determine initial state: spawn mode (3) if in house, normal (0) otherwise
+            # Ghost states: 0=normal, 1=frightened, 2=eaten, 3=spawn
+            is_in_house = jnp.logical_and(
+                ghost_node_idx >= self.consts.GHOST_HOUSE_MIN_NODE,
+                ghost_node_idx <= self.consts.GHOST_HOUSE_MAX_NODE
+            )
+            initial_state = jnp.where(is_in_house, 3, 0)  # 3=spawn, 0=normal
+            ghosts = ghosts.at[i, 3].set(initial_state)  # state
+            
             ghosts = ghosts.at[i, 4].set(self.node_positions_x[ghost_node_idx])  # target_x
             ghosts = ghosts.at[i, 5].set(self.node_positions_y[ghost_node_idx])  # target_y
             ghosts = ghosts.at[i, 6].set(ghost_node_idx)  # current_node
-            ghosts = ghosts.at[i, 7].set(ghost_node_idx)  # target_node
+            
+            # Initial target: spawn node if in house, otherwise first valid neighbor
+            neighbors = self.neighbor_lookup[ghost_node_idx]
+            valid_mask = neighbors >= 0
+            has_valid = jnp.any(valid_mask)
+            first_valid_idx = jnp.argmax(valid_mask)
+            neighbor_target = jnp.where(has_valid, neighbors[first_valid_idx], ghost_node_idx)
+            
+            # Ghosts in spawn mode target the spawn node (exit)
+            initial_target = jnp.where(is_in_house, self.consts.SPAWN_NODE_IDX, neighbor_target)
+            
+            ghosts = ghosts.at[i, 7].set(initial_target)  # target_node
         
         # Initial game state
         score = jnp.array(0, dtype=jnp.int32)
@@ -553,8 +584,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         
         ghosts = jnp.zeros((4, 8), dtype=jnp.int32)
         for i in range(4):
-            ghost_x = self.consts.GHOST_START_X + i * 8
-            ghost_y = self.consts.GHOST_START_Y
+            # Use individual starting position for each ghost
+            ghost_x, ghost_y = self.consts.GHOST_START_POSITIONS[i]
             ghost_node_idx = self._find_nearest_node_idx(ghost_x, ghost_y)
             ghosts = ghosts.at[i, 0].set(self.node_positions_x[ghost_node_idx])
             ghosts = ghosts.at[i, 1].set(self.node_positions_y[ghost_node_idx])
@@ -597,8 +628,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         # Reset ghosts
         ghosts = jnp.zeros((4, 8), dtype=jnp.int32)
         for i in range(4):
-            ghost_x = self.consts.GHOST_START_X + i * 8
-            ghost_y = self.consts.GHOST_START_Y
+            # Use individual starting position for each ghost
+            ghost_x, ghost_y = self.consts.GHOST_START_POSITIONS[i]
             ghost_node_idx = self._find_nearest_node_idx(ghost_x, ghost_y)
             ghosts = ghosts.at[i, 0].set(self.node_positions_x[ghost_node_idx])
             ghosts = ghosts.at[i, 1].set(self.node_positions_y[ghost_node_idx])
@@ -901,6 +932,7 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
                 return (nx - hx) * (nx - hx) + (ny - hy) * (ny - hy)
             
             # When eaten and at node, pick neighbor closest to house
+            # But prevent backtracking to avoid getting stuck
             def pick_best_neighbor_to_house():
                 valid_neighbors = self.neighbor_lookup[new_current, :]
                 valid_mask = valid_neighbors >= 0
@@ -909,9 +941,15 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
                 def calc_dist(i):
                     neighbor = valid_neighbors[i]
                     is_valid = valid_mask[i]
+                    
+                    # Penalize backtracking to previous node to prevent getting stuck
+                    # If this neighbor is the node we just came from, add huge penalty
+                    is_backtrack = neighbor == gcurrent
+                    penalty = jnp.where(is_backtrack, 999999, 0)
+                    
                     dist = jnp.where(
                         is_valid,
-                        get_distance_to_house(neighbor),
+                        get_distance_to_house(neighbor) + penalty,
                         jnp.inf
                     )
                     return dist
@@ -962,13 +1000,24 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             personality_target_node = get_target_for_personality()
             
             # Pick neighbor that gets closest to personality target
+            # But exclude ghost house nodes (26-33) to prevent re-entering house
             def pick_best_neighbor_to_target(target_node):
                 valid_neighbors = self.neighbor_lookup[new_current, :]
                 valid_mask = valid_neighbors >= 0
                 
+                # Exclude house nodes (26-33) - ghosts shouldn't target house unless eaten
+                is_house_node = jnp.logical_and(
+                    valid_neighbors >= self.consts.GHOST_HOUSE_MIN_NODE,
+                    valid_neighbors <= self.consts.GHOST_HOUSE_MAX_NODE
+                )
+                non_house_mask = jnp.logical_and(valid_mask, jnp.logical_not(is_house_node))
+                
+                # Use non-house neighbors if available, otherwise use any valid neighbor
+                use_mask = jnp.where(jnp.any(non_house_mask), non_house_mask, valid_mask)
+                
                 def calc_dist_to_target(i):
                     neighbor = valid_neighbors[i]
-                    is_valid = valid_mask[i]
+                    is_valid = use_mask[i]
                     # Distance to target node
                     nx = self.node_positions_x[neighbor]
                     ny = self.node_positions_y[neighbor]
@@ -985,17 +1034,24 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             target_for_eaten = pick_best_neighbor_to_house()
             target_for_normal = pick_best_neighbor_to_target(personality_target_node)
             target_for_frightened = new_target_from_random  # Random when frightened
+            target_for_spawn = pick_best_neighbor_to_target(self.consts.SPAWN_NODE_IDX)  # Exit to spawn node
             
             # Update target based on ghost state
+            # States: 0=normal, 1=frightened, 2=eaten, 3=spawn
+            # IMPORTANT: Use respawned_state (not is_eaten/gstate) so ghosts can leave the house after respawning
             new_target = jnp.where(
                 at_node,
                 jnp.where(
-                    is_eaten,
-                    target_for_eaten,  # Eaten: go to house
+                    respawned_state == 3,  # Spawn mode - exit house
+                    target_for_spawn,
                     jnp.where(
-                        gstate == 1,
-                        target_for_frightened,  # Frightened: random
-                        target_for_normal  # Normal: personality-based
+                        respawned_state == 2,  # Eaten - return to house
+                        target_for_eaten,
+                        jnp.where(
+                            respawned_state == 1,  # Frightened - random
+                            target_for_frightened,
+                            target_for_normal  # Normal - personality-based
+                        )
                     )
                 ),
                 gtarget  # Not at node: keep current target
@@ -1017,7 +1073,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             )
             
             # Move toward target with appropriate speed
-            speed = jnp.where(is_eaten, self.consts.GHOST_SPEED_EATEN, self.consts.GHOST_SPEED_NORMAL)
+            # Use respawned_state so ghosts move at normal speed after respawning
+            speed = jnp.where(respawned_state == 2, self.consts.GHOST_SPEED_EATEN, self.consts.GHOST_SPEED_NORMAL)
             move_dx = jnp.where(new_direction == Action.RIGHT, speed,
                        jnp.where(new_direction == Action.LEFT, -speed, 0))
             move_dy = jnp.where(new_direction == Action.DOWN, speed,
@@ -1026,7 +1083,17 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             new_x = jnp.where(new_direction != Action.NOOP, snapped_x + move_dx, snapped_x)
             new_y = jnp.where(new_direction != Action.NOOP, snapped_y + move_dy, snapped_y)
             
-            return jnp.array([new_x, new_y, new_direction, respawned_state, target_x_pos, target_y_pos, new_current, new_target], dtype=jnp.int32)
+            # State transition: spawn → normal when OUTSIDE ghost house area
+            # Ghost house is nodes 26-33. Ghosts in spawn mode transition to normal
+            # when they reach a node that is NOT in the house range (< 26 or > 33)
+            outside_house = jnp.logical_or(
+                new_current < self.consts.GHOST_HOUSE_MIN_NODE,
+                new_current > self.consts.GHOST_HOUSE_MAX_NODE
+            )
+            exiting_house = jnp.logical_and(respawned_state == 3, outside_house)
+            final_state = jnp.where(exiting_house, 0, respawned_state)  # 3→0 transition
+            
+            return jnp.array([new_x, new_y, new_direction, final_state, target_x_pos, target_y_pos, new_current, new_target], dtype=jnp.int32)
         
         # Process all ghosts
         ghost_indices = jnp.arange(4)
@@ -1160,9 +1227,15 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         )
         
         # Set all ghosts to frightened if power pellet eaten
+        # States: 0=normal, 1=frightened, 2=eaten, 3=spawn
+        # Only normal ghosts (0) become frightened. Keep eaten (2) and spawn (3) unchanged.
         new_ghost_states_final = jnp.where(
             power_pellet_eaten,
-            jnp.where(new_ghost_states == 2, 2, 1),  # Keep eaten ghosts as eaten, others to frightened
+            jnp.where(
+                new_ghost_states == 0,  # Only normal ghosts
+                1,  # Become frightened
+                new_ghost_states  # Keep eaten (2) and spawn (3) unchanged
+            ),
             new_ghost_states
         )
         new_ghosts_final = new_ghosts.at[:, 3].set(new_ghost_states_final)

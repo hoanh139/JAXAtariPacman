@@ -25,7 +25,7 @@ def test_initialization(env, key):
     Checks lives, score, and starting position.
     """
     obs, state = env.reset(key)
-    assert state.lives == 3
+    assert state.lives == 1  # Arcade mode starts with 1 life
     assert state.score == 0
     # Check initial position (should be at start position)
     assert state.player_x > 0
@@ -37,7 +37,7 @@ def test_maze_layout(env):
     Checks for presence of walls, dots, power pellets, and ghost house.
     """
     maze = env.consts.MAZE_LAYOUT
-    assert maze.shape == (25, 20)
+    assert maze.shape == (36, 28)  # Arcade dimensions
     
     wall_count = jnp.sum(maze == 1)
     dot_count = jnp.sum(maze == 2)
@@ -82,7 +82,7 @@ def test_rendering(env, key):
     """
     obs, state = env.reset(key)
     img = env.render(state)
-    assert img.shape == (210, 160, 3)
+    assert img.shape == (288, 224, 3)  # Arcade screen dimensions
     assert img.dtype == jnp.uint8
 
 def test_ghost_wall_collision_strict(env, key):
@@ -115,7 +115,7 @@ def test_ghost_wall_collision_strict(env, key):
                 tx, ty = int(cx // 8), int(cy // 8)
                 
                 # Boundary check
-                if tx < 0 or tx >= 20 or ty < 0 or ty >= 25:
+                if tx < 0 or tx >= 28 or ty < 0 or ty >= 36:  # Arcade maze dimensions
                     continue # Out of bounds is handled separately or allowed in tunnel
                     
                 # Check if inside wall (1)
