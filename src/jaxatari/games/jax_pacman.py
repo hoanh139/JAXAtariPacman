@@ -122,7 +122,7 @@ class PacmanConstants(NamedTuple):
     PLAYER_SIZE: Tuple[int, int] = (8, 8)
     PLAYER_SPEED: int = 1  # pixels per frame
     PLAYER_START_X: int = 112  # Center of maze (224/2 = 112)
-    PLAYER_START_Y: int = 280  # Bottom area (near bottom of 288 height)
+    PLAYER_START_Y: int = 232  # Mid-bottom area (more visible than 280)
     
     # Ghost speeds as integers to maintain collision integrity
     # In original Pac-Man, frightened ghosts move at 50% speed
@@ -698,7 +698,15 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         # Update current node to target, then get new target
         new_current_idx = jnp.where(overshot, target_node_idx, current_node_idx)
         
-        # Get new target from input direction (equivalent to getNewTarget(direction) in pacman.py)
+        # Check for portal at new current node (index 16 in neighbor_lookup)
+        PORTAL_IDX = 16
+        portal_neighbor = self.neighbor_lookup[new_current_idx, PORTAL_IDX]
+        has_portal = portal_neighbor >= 0
+        
+        # If at portal, teleport to portal destination
+        new_current_idx = jnp.where(has_portal, portal_neighbor, new_current_idx)
+        
+        # Get neighbors of new current node
         new_target_from_action = self.neighbor_lookup[new_current_idx, action]
         has_target_from_action = new_target_from_action >= 0
         valid_action = jnp.logical_and(jnp.logical_not(is_noop), has_target_from_action)
@@ -1228,13 +1236,13 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         
         # Set all ghosts to frightened if power pellet eaten
         # States: 0=normal, 1=frightened, 2=eaten, 3=spawn
-        # Only normal ghosts (0) become frightened. Keep eaten (2) and spawn (3) unchanged.
+        # Normal (0) and spawn (3) ghosts become frightened. Keep eaten (2) unchanged.
         new_ghost_states_final = jnp.where(
             power_pellet_eaten,
             jnp.where(
-                new_ghost_states == 0,  # Only normal ghosts
-                1,  # Become frightened
-                new_ghost_states  # Keep eaten (2) and spawn (3) unchanged
+                new_ghost_states == 2,  # Keep eaten ghosts as eaten
+                2,
+                1  # All other ghosts (normal 0, spawn 3) become frightened
             ),
             new_ghost_states
         )

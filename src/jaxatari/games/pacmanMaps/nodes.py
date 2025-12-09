@@ -80,6 +80,9 @@ class NodeGroup(NamedTuple):
         cls.connect_horizontally(data, nodes_lut, position_to_index, tile_size)
         cls.connect_vertically(data, nodes_lut, position_to_index, tile_size)
         
+        # Setup portal pairs (wraparound tunnels)
+        cls.setup_portal_pairs(nodes_lut, position_to_index, tile_size)
+        
         # Update node_list with connected nodes
         node_list = list(nodes_lut.values())
         node_group = cls(nodeList=node_list)
@@ -200,6 +203,47 @@ class NodeGroup(NamedTuple):
                     # Hit a wall, reset chain
                     key = None
     
+    @staticmethod
+    def setup_portal_pairs(nodes_lut, position_to_index, tile_size):
+        """
+        Setup portal pairs for wraparound tunnels.
+        Portals are bidirectional connections between distant nodes.
+        
+        Args:
+            nodes_lut: Dictionary of (x, y) -> Node
+            position_to_index: Dictionary of (x, y) ->node index
+            tile_size: Size of each tile in pixels
+        """
+        PORTAL_IDX = 16  # Portal neighbor index (doesn't conflict with UP/DOWN/LEFT/RIGHT)
+        
+        # Define ONE-WAY portal pairs - edge nodes teleport to entry nodes on opposite side
+        # Node 34 (x=0, left edge) -> Node 38 (x=168, right side entry) [ONE-WAY]
+        # Node 39 (x=216, right edge) -> Node 35 (x=48, left side entry) [ONE-WAY]
+        one_way_portals = [
+            ((0, 136), (168, 136)),  # Left edge -> Right side entry (one-way)
+            ((216, 136), (48, 136)),  # Right edge -> Left side entry (one-way)
+        ]
+        
+        for pos1, pos2 in one_way_portals:
+            # Check if both nodes exist
+            if pos1 in nodes_lut and pos2 in nodes_lut:
+                # Get node indices
+                pos1_float = (float(pos1[0]), float(pos1[1]))
+                pos2_float = (float(pos2[0]), float(pos2[1]))
+                idx1 = position_to_index[pos1_float]
+                idx2 = position_to_index[pos2_float]
+                
+                # Get source node only
+                node1 = nodes_lut[pos1]
+                
+                # Create ONE-WAY portal: node1 -> node2 (but NOT node2 -> node1)
+                node1_neighbors = node1.neighbor_indices.at[PORTAL_IDX].set(idx2)
+                
+                # Update only the source node with portal connection
+                nodes_lut[pos1] = Node(position=node1.position, neighbor_indices=node1_neighbors)
+                
+                print(f"One-way portal: Node at {pos1} (idx={idx1}) -> Node at {pos2} (idx={idx2})")
+
     def print_connections(self):
         """Print all node connections for debugging."""
         print("\n=== Node Connections ===")
