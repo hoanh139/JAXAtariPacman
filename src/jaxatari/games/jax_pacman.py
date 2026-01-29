@@ -411,6 +411,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
                         maze[row, col] = 4
                     elif char == 'D':
                         maze[row, col] = 5
+                    elif char == 'P':
+                        maze[row, col] = 0 # treat P as path
                     else:
                         maze[row, col] = 0
         return jnp.array(maze, dtype=jnp.int32)
