@@ -126,22 +126,22 @@ def _get_sprite_lookup() -> chex.Array:
 
 class PacmanConstants(NamedTuple):
     # Screen dimensions (Atari 2600 Pacman uses 224x288)
-    WIDTH: int = 224
-    HEIGHT: int = 288  # 36 tiles * 8 pixels
+    WIDTH: int = 160
+    HEIGHT: int = 250  # 31.25 tiles * 8 pixels -> 31 tiles fits with 2px gap at bottom
     
     # Tile size for maze (8x8 pixels per tile)
     TILE_SIZE: int = 8
     ANIMATION_SPEED: int = 5 # Frames per animation step
     
-    # Maze dimensions in tiles (224/8 = 28, 288/8 = 36)
-    MAZE_WIDTH: int = 28  # 28 tiles wide
-    MAZE_HEIGHT: int = 36  # 36 tiles tall
+    # Maze dimensions in tiles (160/8 = 20, 250/8 = 31.25 -> 31)
+    MAZE_WIDTH: int = 20  # 20 tiles wide
+    MAZE_HEIGHT: int = 31  # 31 tiles tall
     
     # Player constants
     PLAYER_SIZE: Tuple[int, int] = (8, 8)
     PLAYER_SPEED: int = 1  # pixels per step
-    PLAYER_START_X: int = 112  # Center of maze (224/2 = 112)
-    PLAYER_START_Y: int = 280  # Bottom area (near bottom of 288 height)
+    PLAYER_START_X: int = 88  # Node at (29, 11) -> 88px (Center is 80, closest node is 88)
+    PLAYER_START_Y: int = 232  # Row 29
     
     # Ghost constants
     GHOST_SIZE: Tuple[int, int] = (8, 8)
@@ -150,8 +150,8 @@ class PacmanConstants(NamedTuple):
     GHOST_SPEED_EATEN: int = 2
     
     # Ghost starting positions (in ghost house area)
-    GHOST_START_X: int = 112  # Center of maze (224/2 = 112)
-    GHOST_START_Y: int = 144  # Adjusted for new map size (approximately center vertically)
+    GHOST_START_X: int = 80  # Center of maze (160/2 = 80) -> Col 10 (Node in Row 13)
+    GHOST_START_Y: int = 104  # Row 13 (Ghost House)
     
     # Ghost colors (RGB)
     GHOST_BLINKY_COLOR: Tuple[int, int, int] = (255, 0, 0)  # Red
@@ -292,7 +292,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         pacman_maps_dir = os.path.join(current_dir, "pacmanMaps")
         maze_file_path = os.path.join(pacman_maps_dir, "maze1.txt")
         maze_file_pellet_path = os.path.join(pacman_maps_dir, "maze1_pellet.txt")
-        
+        maze_file_path = os.path.join(pacman_maps_dir, "maze1.txt")
+        maze_file_pellet_path = os.path.join(pacman_maps_dir, "maze1_pellet.txt")
         import pacmanMaps.nodes as nodes_mod
         NodeGroup = nodes_mod.NodeGroup
         
@@ -1394,13 +1395,13 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
     def observation_space(self) -> spaces.Dict:
         return spaces.Dict({
             "player": spaces.Dict({
-                "x": spaces.Box(low=0, high=224, shape=(), dtype=jnp.int32),
-                "y": spaces.Box(low=0, high=288, shape=(), dtype=jnp.int32),
-                "width": spaces.Box(low=0, high=224, shape=(), dtype=jnp.int32),
-                "height": spaces.Box(low=0, high=288, shape=(), dtype=jnp.int32),
+                "x": spaces.Box(low=0, high=160, shape=(), dtype=jnp.int32),
+                "y": spaces.Box(low=0, high=250, shape=(), dtype=jnp.int32),
+                "width": spaces.Box(low=0, high=160, shape=(), dtype=jnp.int32), # Though size is 8
+                "height": spaces.Box(low=0, high=250, shape=(), dtype=jnp.int32),
                 "active": spaces.Box(low=0, high=1, shape=(), dtype=jnp.int32),
             }),
-            "ghosts": spaces.Box(low=0, high=288, shape=(4, 5), dtype=jnp.int32),
+            "ghosts": spaces.Box(low=0, high=250, shape=(4, 5), dtype=jnp.int32),
             "dots_remaining": spaces.Box(low=0, high=240, shape=(), dtype=jnp.int32),
             "power_pellets_active": spaces.Box(low=0, high=15, shape=(), dtype=jnp.int32),
             "score": spaces.Box(low=0, high=999999, shape=(), dtype=jnp.int32),
@@ -1415,7 +1416,7 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
         return spaces.Box(
             low=0,
             high=255,
-            shape=(288, 224, 3),  # (height, width, channels)
+            shape=(250, 160, 3),  # (height, width, channels)
             dtype=jnp.uint8
         )
     
@@ -1447,7 +1448,7 @@ class PacmanRenderer(JAXGameRenderer):
         self.consts = consts or PacmanConstants()
         # Maze layout will be set by JaxPacman after initialization
         self.config = render_utils.RendererConfig(
-            game_dimensions=(288, 224),  # (height, width) format
+            game_dimensions=(250, 160),  # (height, width) format
             channels=3,
         )
         self.jr = render_utils.JaxRenderingUtils(self.config)
