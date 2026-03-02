@@ -80,6 +80,9 @@ class NodeGroup(NamedTuple):
         cls.connect_horizontally(data, nodes_lut, position_to_index, tile_size)
         cls.connect_vertically(data, nodes_lut, position_to_index, tile_size)
         
+        # Setup portal pairs (wraparound tunnels)
+        cls.setup_portal_pairs(nodes_lut, position_to_index, tile_size)
+        
         # Update node_list with connected nodes
         node_list = list(nodes_lut.values())
         node_group = cls(nodeList=node_list)
@@ -88,6 +91,45 @@ class NodeGroup(NamedTuple):
         node_group.print_connections()
         
         return node_group
+
+    @staticmethod
+    def setup_portal_pairs(nodes_lut, position_to_index, tile_size):
+        """
+        Setup portal connections between specific nodes.
+        Uses index 16 (PORTAL_IDX) in neighbor_indices to store portal destination.
+        """
+        PORTAL_IDX = 16  # Portal neighbor index (doesn't conflict with UP/DOWN/LEFT/RIGHT)
+        
+        # Define ONE-WAY portal pairs - edge nodes teleport to entry nodes on opposite side
+        # Node 34 (x=0, left edge) -> Node 38 (x=168, right side entry) [ONE-WAY]
+        # Node 39 (x=216, right edge) -> Node 35 (x=48, left side entry) [ONE-WAY]
+        one_way_portals = [
+            ((0, 136), (168, 136)),  # Left edge -> Right side entry (one-way)
+            ((216, 136), (48, 136)),  # Right edge -> Left side entry (one-way)
+        ]
+        
+        for pos1, pos2 in one_way_portals:
+            # Check if both nodes exist
+            if pos1 in nodes_lut and pos2 in nodes_lut:
+                # Get node indices
+                pos1_float = (float(pos1[0]), float(pos1[1]))
+                pos2_float = (float(pos2[0]), float(pos2[1]))
+                idx1 = position_to_index.get(pos1_float)
+                idx2 = position_to_index.get(pos2_float)
+                
+                if idx1 is None or idx2 is None:
+                    continue
+
+                # Get source node only
+                node1 = nodes_lut[pos1]
+                
+                # Create ONE-WAY portal: node1 -> node2 (but NOT node2 -> node1)
+                node1_neighbors = node1.neighbor_indices.at[PORTAL_IDX].set(idx2)
+                
+                # Update only the source node with portal connection
+                nodes_lut[pos1] = Node(position=node1.position, neighbor_indices=node1_neighbors)
+                
+                print(f"One-way portal: Node at {pos1} (idx={idx1}) -> Node at {pos2} (idx={idx2})")
     
     @staticmethod
     def read_maze_file(textfile):
