@@ -111,8 +111,14 @@ class RainbowDQN:
         explore = jax.random.uniform(key, greedy_actions.shape) < epsilon
         return jnp.where(explore, random_actions, greedy_actions)
         
-    def train(self, total_steps=200_000_000):
+    def train(self, total_steps=200_000_000, render=False):
         print(f"Starting DQN Training for {total_steps} steps...")
+        
+        if render:
+            import pygame
+            pygame.init()
+            window = pygame.display.set_mode((224 * 3, 288 * 3))
+            pygame.display.set_caption("DQN Training Live View")
         self.rng, *reset_keys = jax.random.split(self.rng, self.envs.num_envs + 1)
         obs, states = self.envs.reset(jnp.array(reset_keys))
         
@@ -132,18 +138,91 @@ class RainbowDQN:
             # skeleton runnable footprint request without rebuilding a 300 line DeepMind standard implementation. 
             self.buffer.add(obs, actions, rews, dones)
             
+            if render:
+                frame = np.array(obs[0], dtype=np.uint8)
+                if frame.ndim == 3 and frame.shape[2] == 1:
+                    frame = np.repeat(frame, 3, axis=2)
+                
+                import pygame
+                surf = pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
+                surf = pygame.transform.scale(surf, (224 * 3, 288 * 3))
+                window.blit(surf, (0, 0))
+                pygame.display.flip()
+                
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        render = False # Graceful exit of rendering
+                        
             obs = next_obs
             
             if step > 0 and step % 1000 == 0:
                 sps = int((step * self.envs.num_envs) / (time.time() - start_time))
                 print(f"DQN Step {step * self.envs.num_envs:,} | Buffer Size: {self.buffer.size} | SPS: {sps:,}")
                 
+        if render:
+            import pygame
+            pygame.quit()
+            
         print("DQN Training Skeleton Complete!")
 
+def evaluate_dqn(trainer, steps=500):
+    print("Starting Evaluation with Visualization...")
+    import pygame
+
+    pygame.init()
+    # DQN obs output is 288x224 (HxW)
+    window = pygame.display.set_mode((224 * 3, 288 * 3))
+    pygame.display.set_caption("DQN Pacman Evaluation")
+
+    rng = jax.random.PRNGKey(99)
+    obs, states = trainer.envs.reset(jnp.array([rng]))
+    
+    for step in range(steps):
+        rng, act_key = jax.random.split(rng)
+        
+        # Get Q-values
+        q_vals = trainer.online_params.apply_fn(trainer.online_params.params, obs)
+        max_q = float(jnp.max(q_vals[0]))
+        
+        # Pure greedy evaluation execution action
+        actions = jnp.argmax(q_vals, axis=-1)
+        
+        obs, states, rews, dones, _ = trainer.envs.step(states, actions)
+        
+        frame = np.array(obs[0], dtype=np.uint8)
+        
+        if frame.ndim == 3 and frame.shape[2] == 1:
+            frame = np.repeat(frame, 3, axis=2)
+            
+        surf = pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
+        surf = pygame.transform.scale(surf, (224 * 3, 288 * 3))
+        window.blit(surf, (0, 0))
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+
+        r = float(rews[0])
+        print(f"Step {step}: Reward {r:^5} | Max Q-Value: {max_q:.3f}")
+
+    pygame.quit()
+    print("Evaluation Finished.")
+
 if __name__ == "__main__":
-    dqn_envs = make_vec("JaxPacman", 32)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval", action="store_true", help="Run evaluation visualization explicitly")
+    parser.add_argument("--render", action="store_true", help="Render the training loop live")
+    args = parser.parse_args()
+
+    dqn_envs = make_vec("JaxPacman", 1 if args.eval else 32)
     trainer = RainbowDQN(dqn_envs)
     
-    # 2M steps effectively as a test
-    trainer.train(2_000_000)
-    print("DQN skeleton successfully tested runnable execution.")
+    if args.eval:
+        evaluate_dqn(trainer, steps=1000)
+    else:
+        trainer.train(2_000_000, render=args.render)
+        print("DQN skeleton successfully tested runnable execution.")

@@ -66,4 +66,4 @@ def cpu_gpu_benchmark(total_steps=100_000):
     return fps, mean_rew
 
 if __name__ == "__main__":
-    cpu_gpu_benchmark(total_steps=1_000_000)
+    cpu_gpu_benchmark(total_steps=2_000_000)

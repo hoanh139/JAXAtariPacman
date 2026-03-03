@@ -113,8 +113,14 @@ class PPOTrainer:
         logprob = jnp.sum(jax.nn.log_softmax(logits) * action_onehot, axis=-1)
         return action, logprob, values.squeeze()
 
-    def train(self, total_steps=200_000_000):
+    def train(self, total_steps=200_000_000, render=False):
         print(f"Starting PPO Training for {total_steps} steps...")
+        
+        if render:
+            import pygame
+            pygame.init()
+            window = pygame.display.set_mode((224 * 3, 288 * 3))
+            pygame.display.set_caption("PPO Training Live View")
         self.rng, *reset_keys = jax.random.split(self.rng, self.envs.num_envs + 1)
         obs, states = self.envs.reset(jnp.array(reset_keys))
         
@@ -145,6 +151,22 @@ class PPOTrainer:
             obs = next_obs
             states = next_states
             
+            if render:
+                frame = np.array(obs[0], dtype=np.uint8)
+                if frame.ndim == 3 and frame.shape[2] == 1:
+                    frame = np.repeat(frame, 3, axis=2)
+                
+                import pygame
+                surf = pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
+                surf = pygame.transform.scale(surf, (224 * 3, 288 * 3))
+                window.blit(surf, (0, 0))
+                pygame.display.flip()
+                
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        render = False # Graceful exit of rendering
+                        
             # Note: A full PPO implementation includes rollouts, advantages, etc.
             # To match the user's snippet exactly as requested, print logs and simulate progress:
             if global_step > 0 and global_step % 10000 == 0:
@@ -152,12 +174,67 @@ class PPOTrainer:
                 sps = int((global_step * self.envs.num_envs) / (time.time() - start_time))
                 print(f"Step {global_step * self.envs.num_envs:,}: Return {mean_return:.0f} | SPS: {sps:,}")
                 
+        if render:
+            import pygame
+            pygame.quit()
+            
         print("Training Complete!")
 
+def evaluate_ppo(trainer, steps=500):
+    print("Starting Evaluation with Visualization...")
+    import pygame
+
+    pygame.init()
+    # PPO obs output is 288x224 (HxW)
+    window = pygame.display.set_mode((224 * 3, 288 * 3))
+    pygame.display.set_caption("PPO Pacman Evaluation")
+    
+    rng = jax.random.PRNGKey(99)
+    obs, states = trainer.envs.reset(jnp.array([rng]))
+    
+    for step in range(steps):
+        rng, act_key = jax.random.split(rng)
+        actions, _, values = trainer.get_action_and_value(trainer.params, act_key, obs)
+        
+        obs, states, rews, dones = trainer.step_envs(states, actions)
+        
+        frame = np.array(obs[0], dtype=np.uint8)
+        
+        if frame.ndim == 3 and frame.shape[2] == 1:
+            frame = np.repeat(frame, 3, axis=2)
+            
+        surf = pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
+        surf = pygame.transform.scale(surf, (224 * 3, 288 * 3))
+        window.blit(surf, (0, 0))
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+
+        # Convert potential 0-D scalar arrays back to 1D safely
+        val = float(np.asarray(values).flatten()[0])
+        r = float(np.asarray(rews).flatten()[0])
+        
+        print(f"Step {step}: Reward {r:^5} | Value: {val:.3f}")
+
+    pygame.quit()
+    print("Evaluation Finished.")
+
 if __name__ == "__main__":
-    ppo_envs = make_vec("JaxPacman", 32)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval", action="store_true", help="Run evaluation visualization explicitly")
+    parser.add_argument("--render", action="store_true", help="Render the training loop live")
+    args = parser.parse_args()
+
+    # Use smaller envs for faster standalone execution
+    ppo_envs = make_vec("JaxPacman", 1 if args.eval else 32)
     trainer = PPOTrainer(ppo_envs)
     
-    # Do 2M steps effectively as a test so the script can finish within runtime
-    trainer.train(2_000_000)
-    print("PPO benchmark successfully tested runnable execution.")
+    if args.eval:
+        evaluate_ppo(trainer, steps=1000)
+    else:
+        trainer.train(2_000_000, render=args.render)
+        print("PPO baseline successfully tested runnable execution.")

@@ -431,13 +431,13 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             self.consts.PLAYER_START_X,
             self.consts.PLAYER_START_Y
         )
-        player_x = jnp.array(self.node_positions_x[player_start_node_idx], dtype=jnp.int32)
-        player_y = jnp.array(self.node_positions_y[player_start_node_idx], dtype=jnp.int32)
-        player_direction = jnp.array(0, dtype=jnp.int32)  # Start facing right
-        player_next_direction = jnp.array(-1, dtype=jnp.int32)
-        player_animation_frame = jnp.array(0, dtype=jnp.int32)
-        player_current_node_index = jnp.array(player_start_node_idx, dtype=jnp.int32)
-        player_target_node_index = jnp.array(player_start_node_idx, dtype=jnp.int32)
+        player_x = jnp.array([self.node_positions_x[player_start_node_idx]], dtype=jnp.int32)
+        player_y = jnp.array([self.node_positions_y[player_start_node_idx]], dtype=jnp.int32)
+        player_direction = jnp.array([0], dtype=jnp.int32)  # Start facing right
+        player_next_direction = jnp.array([-1], dtype=jnp.int32)
+        player_animation_frame = jnp.array([0], dtype=jnp.int32)
+        player_current_node_index = jnp.array([player_start_node_idx], dtype=jnp.int32)
+        player_target_node_index = jnp.array([player_start_node_idx], dtype=jnp.int32)
         
         # Initialize ghosts (4 ghosts at explicit starting positions)
         # Blinky(112,136), Pinky(104,136), Inky(112,144), Clyde(120,144)
@@ -633,8 +633,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             self.consts.PLAYER_START_X,
             self.consts.PLAYER_START_Y
         )
-        player_x = jnp.array(self.node_positions_x[player_start_node_idx], dtype=jnp.int32)
-        player_y = jnp.array(self.node_positions_y[player_start_node_idx], dtype=jnp.int32)
+        player_x = jnp.array([self.node_positions_x[player_start_node_idx]], dtype=jnp.int32)
+        player_y = jnp.array([self.node_positions_y[player_start_node_idx]], dtype=jnp.int32)
         
         ghost_starts = jnp.array([
             [112, 136],
@@ -661,10 +661,10 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             lives=new_lives,
             player_x=player_x,
             player_y=player_y,
-            player_direction=jnp.array(0, dtype=jnp.int32),
-            player_next_direction=jnp.array(-1, dtype=jnp.int32),
-            player_current_node_index=jnp.array(player_start_node_idx, dtype=jnp.int32),
-            player_target_node_index=jnp.array(player_start_node_idx, dtype=jnp.int32),
+            player_direction=jnp.array([0], dtype=jnp.int32),
+            player_next_direction=jnp.array([-1], dtype=jnp.int32),
+            player_current_node_index=jnp.array([player_start_node_idx], dtype=jnp.int32),
+            player_target_node_index=jnp.array([player_start_node_idx], dtype=jnp.int32),
             ghosts=ghosts,
             frightened_timer=jnp.array(0, dtype=jnp.int32),
             scatter_chase_timer=jnp.array(0, dtype=jnp.int32),
@@ -685,8 +685,8 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             self.consts.PLAYER_START_X,
             self.consts.PLAYER_START_Y
         )
-        player_x = jnp.array(self.node_positions_x[player_start_node_idx], dtype=jnp.int32)
-        player_y = jnp.array(self.node_positions_y[player_start_node_idx], dtype=jnp.int32)
+        player_x = jnp.array([self.node_positions_x[player_start_node_idx]], dtype=jnp.int32)
+        player_y = jnp.array([self.node_positions_y[player_start_node_idx]], dtype=jnp.int32)
         
         # Reset ghosts (at exact starting positions)
         ghost_starts = jnp.array([
@@ -718,10 +718,10 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
             level=new_level,
             player_x=player_x,
             player_y=player_y,
-            player_direction=jnp.array(0, dtype=jnp.int32),
-            player_next_direction=jnp.array(-1, dtype=jnp.int32),
-            player_current_node_index=jnp.array(player_start_node_idx, dtype=jnp.int32),
-            player_target_node_index=jnp.array(player_start_node_idx, dtype=jnp.int32),
+            player_direction=jnp.array([0], dtype=jnp.int32),
+            player_next_direction=jnp.array([-1], dtype=jnp.int32),
+            player_current_node_index=jnp.array([player_start_node_idx], dtype=jnp.int32),
+            player_target_node_index=jnp.array([player_start_node_idx], dtype=jnp.int32),
             ghosts=ghosts,
             pellets_collected=pellets_collected,
             dots_remaining=dots_remaining,
@@ -739,121 +739,113 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
     def _player_step(self, state: PacmanState, action: chex.Array) -> PacmanState:
         """
         Handle player movement - full Pacman movement implementation.
-        Key behaviors:
-        - Only stops at node if can't continue in current direction
-        - Can reverse direction at any time (when not overshooting)
-        - Input direction takes precedence when overshooting a node
+        Vectorized to support N players (action shape: (N,) or ()).
         """
-        # Check if this is a NOOP action
-        is_noop = action == Action.NOOP
+        # Ensure action is array
+        action_arr = jnp.atleast_1d(action)
         
-        # Get current and target node positions
-        current_node_idx = state.player_current_node_index
-        target_node_idx = state.player_target_node_index
+        # Determine number of players based on state shapes
+        num_players = state.player_x.shape[0]
         
-        current_node_x = self.node_positions_x[current_node_idx]
-        current_node_y = self.node_positions_y[current_node_idx]
-        target_node_x = self.node_positions_x[target_node_idx]
-        target_node_y = self.node_positions_y[target_node_idx]
+        # If action is scalar but we have N players, broadcast action
+        if action_arr.shape[0] == 1 and num_players > 1:
+            action_arr = jnp.repeat(action_arr, num_players)
         
-        # Check if we've overshot the target node (equivalent to overshotTarget() in pacman.py)
-        # Calculate direction vector from current node to target node
-        dx_to_target = target_node_x - current_node_x
-        dy_to_target = target_node_y - current_node_y
-        vec_to_target_sq = dx_to_target * dx_to_target + dy_to_target * dy_to_target
-        
-        # Calculate distance from current node to current position
-        vec_to_self_sq = (state.player_x - current_node_x) * (state.player_x - current_node_x) + (state.player_y - current_node_y) * (state.player_y - current_node_y)
-        overshot = vec_to_self_sq >= vec_to_target_sq
-        
-        # If overshot target (reached/passed the target node)
-        # Update current node to target, then get new target
-        new_current_idx = jnp.where(overshot, target_node_idx, current_node_idx)
-        
-        # Get new target from input direction (equivalent to getNewTarget(direction) in pacman.py)
-        # Raw graph neighbors
-        new_target_from_action = self.neighbor_lookup[new_current_idx, action]
-        new_target_from_current_dir = self.neighbor_lookup[new_current_idx, state.player_direction]
-
-        # Block edges that go through the door for Pacman only
-        # door_edge_mask[new_current_idx, action] == True -> treat as no neighbor (-1)
-        blocked_action = self.player_door_edge_mask[new_current_idx, action]
-        blocked_curr  = self.player_door_edge_mask[new_current_idx, state.player_direction]
-
-        new_target_from_action = jnp.where(blocked_action, -1, new_target_from_action)
-        new_target_from_current_dir = jnp.where(blocked_curr, -1, new_target_from_current_dir)
-
-        has_target_from_action = new_target_from_action >= 0
-        valid_action = jnp.logical_and(jnp.logical_not(is_noop), has_target_from_action)
-        
-        # Get new target from current direction (equivalent to getNewTarget(self.direction))
-        has_target_from_current_dir = new_target_from_current_dir >= 0
-        valid_current_dir = jnp.logical_and(state.player_direction != Action.NOOP, has_target_from_current_dir)
-        
-        # When overshot: input direction takes precedence, then current direction, else stop
-        # When not overshot: keep current target
-        new_target_idx = jnp.where(
-            overshot,
-            jnp.where(valid_action, new_target_from_action,
-                     jnp.where(valid_current_dir, new_target_from_current_dir, new_current_idx)),
-            target_node_idx
-        )
-        
-        # Update direction when overshot:
-        # - If input direction gives valid target, use input direction
-        # - Else if current direction gives valid target, use current direction
-        # - Else stop (NOOP)
-        new_direction = jnp.where(
-            overshot,
-            jnp.where(valid_action, action,
-                     jnp.where(valid_current_dir, state.player_direction, jnp.array(Action.NOOP, dtype=jnp.int32))),
-            state.player_direction
-        )
-        
-        # If overshot, snap position to target node (equivalent to setPosition() in pacman.py)
-        snapped_x = jnp.where(overshot, target_node_x, state.player_x)
-        snapped_y = jnp.where(overshot, target_node_y, state.player_y)
-        
-        # If NOT overshot, check if we can reverse direction (oppositeDirection check)
-        # Action values: UP=2, DOWN=5, LEFT=4, RIGHT=3
-        # Opposite pairs: UP(2) <-> DOWN(5), LEFT(4) <-> RIGHT(3)
-        is_opposite = jnp.where(
-            action == Action.UP, state.player_direction == Action.DOWN,
-            jnp.where(
-                action == Action.DOWN, state.player_direction == Action.UP,
+        def single_player_step(px, py, pdir, c_node, t_node, act):
+            is_noop = act == Action.NOOP
+            
+            c_node_x = self.node_positions_x[c_node]
+            c_node_y = self.node_positions_y[c_node]
+            t_node_x = self.node_positions_x[t_node]
+            t_node_y = self.node_positions_y[t_node]
+            
+            dx_to_target = t_node_x - c_node_x
+            dy_to_target = t_node_y - c_node_y
+            vec_to_target_sq = dx_to_target**2 + dy_to_target**2
+            
+            vec_to_self_sq = (px - c_node_x)**2 + (py - c_node_y)**2
+            overshot = vec_to_self_sq >= vec_to_target_sq
+            
+            new_current_idx = jnp.where(overshot, t_node, c_node)
+            
+            new_target_from_action = self.neighbor_lookup[new_current_idx, act]
+            new_target_from_current_dir = self.neighbor_lookup[new_current_idx, pdir]
+            
+            blocked_action = self.player_door_edge_mask[new_current_idx, act]
+            blocked_curr  = self.player_door_edge_mask[new_current_idx, pdir]
+            
+            new_target_from_action = jnp.where(blocked_action, -1, new_target_from_action)
+            new_target_from_current_dir = jnp.where(blocked_curr, -1, new_target_from_current_dir)
+            
+            has_target_from_action = new_target_from_action >= 0
+            valid_action = jnp.logical_and(jnp.logical_not(is_noop), has_target_from_action)
+            
+            has_target_from_current_dir = new_target_from_current_dir >= 0
+            valid_current_dir = jnp.logical_and(pdir != Action.NOOP, has_target_from_current_dir)
+            
+            new_target_idx = jnp.where(
+                overshot,
+                jnp.where(valid_action, new_target_from_action,
+                         jnp.where(valid_current_dir, new_target_from_current_dir, new_current_idx)),
+                t_node
+            )
+            
+            new_direction = jnp.where(
+                overshot,
+                jnp.where(valid_action, act,
+                         jnp.where(valid_current_dir, pdir, jnp.array(Action.NOOP, dtype=jnp.int32))),
+                pdir
+            )
+            
+            snapped_x = jnp.where(overshot, t_node_x, px)
+            snapped_y = jnp.where(overshot, t_node_y, py)
+            
+            is_opposite = jnp.where(
+                act == Action.UP, pdir == Action.DOWN,
                 jnp.where(
-                    action == Action.LEFT, state.player_direction == Action.RIGHT,
+                    act == Action.DOWN, pdir == Action.UP,
                     jnp.where(
-                        action == Action.RIGHT, state.player_direction == Action.LEFT,
-                        False
+                        act == Action.LEFT, pdir == Action.RIGHT,
+                        jnp.where(
+                            act == Action.RIGHT, pdir == Action.LEFT,
+                            False
+                        )
                     )
                 )
             )
+            can_reverse = jnp.logical_and(jnp.logical_not(overshot), 
+                                         jnp.logical_and(jnp.logical_not(is_noop), is_opposite))
+            
+            final_current_idx = jnp.where(can_reverse, t_node, new_current_idx)
+            final_target_idx = jnp.where(can_reverse, c_node, new_target_idx)
+            final_direction = jnp.where(can_reverse, act, new_direction)
+            
+            move_dx = jnp.where(final_direction == Action.RIGHT, self.consts.PLAYER_SPEED,
+                       jnp.where(final_direction == Action.LEFT, -self.consts.PLAYER_SPEED, 0))
+            move_dy = jnp.where(final_direction == Action.DOWN, self.consts.PLAYER_SPEED,
+                       jnp.where(final_direction == Action.UP, -self.consts.PLAYER_SPEED, 0))
+            
+            new_x = jnp.where(final_direction != Action.NOOP, snapped_x + move_dx, snapped_x)
+            new_y = jnp.where(final_direction != Action.NOOP, snapped_y + move_dy, snapped_y)
+            new_y = jnp.mod(new_y, self.consts.HEIGHT)
+            
+            return new_x.astype(jnp.int32), new_y.astype(jnp.int32), final_direction, final_current_idx, final_target_idx
+        
+        # Vectorize across all players
+        new_xs, new_ys, final_dirs, final_c_nodes, final_t_nodes = jax.vmap(single_player_step)(
+            state.player_x, state.player_y, state.player_direction,
+            state.player_current_node_index, state.player_target_node_index,
+            action_arr
         )
-        can_reverse = jnp.logical_and(jnp.logical_not(overshot), 
-                                     jnp.logical_and(jnp.logical_not(is_noop), is_opposite))
         
-        # If reversing direction, swap node and target, and change direction
-        # reverseDirection() in pseudo code: direction *= -1, swap(node, target)
-        final_current_idx = jnp.where(can_reverse, target_node_idx, new_current_idx)
-        final_target_idx = jnp.where(can_reverse, current_node_idx, new_target_idx)
-        final_direction = jnp.where(can_reverse, action, new_direction)
-        
-        # Update target node position for movement calculation
-        final_target_x = self.node_positions_x[final_target_idx]
-        final_target_y = self.node_positions_y[final_target_idx]
-        
-        # Calculate movement direction based on final direction
-        # Action values: Action.UP=2, Action.DOWN=5, Action.LEFT=4, Action.RIGHT=3
-        # Movement deltas: RIGHT=+x, LEFT=-x, DOWN=+y, UP=-y
-        move_dx = jnp.where(final_direction == Action.RIGHT, self.consts.PLAYER_SPEED,
-                   jnp.where(final_direction == Action.LEFT, -self.consts.PLAYER_SPEED, 0))
-        move_dy = jnp.where(final_direction == Action.DOWN, self.consts.PLAYER_SPEED,
-                   jnp.where(final_direction == Action.UP, -self.consts.PLAYER_SPEED, 0))
-        
-        # Move incrementally towards target (equivalent to position += directions[direction]*speed*dt)
-        new_x = jnp.where(final_direction != Action.NOOP, snapped_x + move_dx, snapped_x)
-        new_y = jnp.where(final_direction != Action.NOOP, snapped_y + move_dy, snapped_y)
+        return state._replace(
+            player_x=new_xs,
+            player_y=new_ys,
+            player_direction=final_dirs,
+            player_next_direction=jnp.full_like(new_xs, Action.NOOP, dtype=jnp.int32),
+            player_current_node_index=final_c_nodes,
+            player_target_node_index=final_t_nodes,
+        )
         
         # Apply vertical tunnel wrap for 2600 compatibility
         new_y = jnp.mod(new_y, self.consts.HEIGHT)
@@ -1390,12 +1382,15 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
 
     def _get_observation(self, state: PacmanState) -> PacmanObservation:
         """Convert state to observation."""
+        # Determine num players
+        num_players = state.player_x.shape[0] if hasattr(state.player_x, 'shape') and len(state.player_x.shape) > 0 else 1
+        
         player = EntityPosition(
-            x=state.player_x,
-            y=state.player_y,
-            width=jnp.array(self.consts.PLAYER_SIZE[0], dtype=jnp.int32),
-            height=jnp.array(self.consts.PLAYER_SIZE[1], dtype=jnp.int32),
-            active=jnp.array(1, dtype=jnp.int32),
+            x=jnp.atleast_1d(state.player_x),
+            y=jnp.atleast_1d(state.player_y),
+            width=jnp.full((num_players,), self.consts.PLAYER_SIZE[0], dtype=jnp.int32),
+            height=jnp.full((num_players,), self.consts.PLAYER_SIZE[1], dtype=jnp.int32),
+            active=jnp.full((num_players,), 1, dtype=jnp.int32),
         )
         
         # Ghosts observation: [x, y, width, height, state] for each
@@ -1446,11 +1441,12 @@ class JaxPacman(JaxEnvironment[PacmanState, PacmanObservation, PacmanInfo, Pacma
     def observation_space(self) -> spaces.Dict:
         return spaces.Dict({
             "player": spaces.Dict({
-                "x": spaces.Box(low=0, high=224, shape=(), dtype=jnp.int32),
-                "y": spaces.Box(low=0, high=288, shape=(), dtype=jnp.int32),
-                "width": spaces.Box(low=0, high=224, shape=(), dtype=jnp.int32),
-                "height": spaces.Box(low=0, high=288, shape=(), dtype=jnp.int32),
-                "active": spaces.Box(low=0, high=1, shape=(), dtype=jnp.int32),
+                # Note: Default shape is (1,) due to our earlier reset conversion.
+                "x": spaces.Box(low=0, high=224, shape=(1,), dtype=jnp.int32),
+                "y": spaces.Box(low=0, high=288, shape=(1,), dtype=jnp.int32),
+                "width": spaces.Box(low=0, high=224, shape=(1,), dtype=jnp.int32),
+                "height": spaces.Box(low=0, high=288, shape=(1,), dtype=jnp.int32),
+                "active": spaces.Box(low=0, high=1, shape=(1,), dtype=jnp.int32),
             }),
             "ghosts": spaces.Box(low=0, high=288, shape=(4, 5), dtype=jnp.int32),
             "dots_remaining": spaces.Box(low=0, high=240, shape=(), dtype=jnp.int32),

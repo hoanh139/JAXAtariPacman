@@ -62,6 +62,8 @@ MOD_MODULES = {
     "freeway": "jaxatari.games.mods.freeway_mods.FreewayEnvMod",
     "breakout": "jaxatari.games.mods.breakout_mods.BreakoutEnvMod",
     "seaquest": "jaxatari.games.mods.seaquest_mods.SeaquestEnvMod",
+    "pacman": "jaxatari.games.mods.pacman_mods.PacmanEnvMod",
+    "jaxpacman": "jaxatari.games.mods.pacman_mods.PacmanEnvMod",
 }
 
 
