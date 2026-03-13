@@ -104,8 +104,8 @@ class NodeGroup(NamedTuple):
         # Node 34 (x=0, left edge) -> Node 38 (x=168, right side entry) [ONE-WAY]
         # Node 39 (x=216, right edge) -> Node 35 (x=48, left side entry) [ONE-WAY]
         one_way_portals = [
-            ((0, 136), (168, 136)),  # Left edge -> Right side entry (one-way)
-            ((216, 136), (48, 136)),  # Right edge -> Left side entry (one-way)
+            ((0.0, 104.0), (152.0, 104.0)),  # Left edge -> Right side entry (one-way)
+            ((152.0, 104.0), (0.0, 104.0)),  # Right edge -> Left side entry (one-way)
         ]
         
         for pos1, pos2 in one_way_portals:
