@@ -1,4 +1,0 @@
-- +alg=pqn_jaxatari_pixel
-- ++alg.ENV_NAME=pacman
-- ++alg.EVAL_MODS=['faster_pacman', 'slower_ghosts', 'no_fright', 'half_dots', 'random_start']
-- ++WANDB_MODE=disabled

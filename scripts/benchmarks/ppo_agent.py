@@ -74,6 +74,9 @@ def make_train(config):
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
+    config["NUM_UPDATES_DECAY"] = (
+        config.get("TOTAL_TIMESTEPS_DECAY", config["TOTAL_TIMESTEPS"]) // config["NUM_STEPS"] // config["NUM_ENVS"]
+    )
     config["MINIBATCH_SIZE"] = (
         config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
@@ -136,7 +139,7 @@ def make_train(config):
         obsv, env_state = jax.vmap(env.reset)(reset_rng)
 
         # TRAIN LOOP
-        def _update_step(runner_state, unused):
+        def _update_step(runner_state, update_count):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
                 train_state, env_state, last_obs, rng = runner_state
@@ -277,6 +280,9 @@ def make_train(config):
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
+
+            # Compute env_step for WandB x-axis
+            env_step = (update_count + 1) * config["NUM_STEPS"] * config["NUM_ENVS"]
             
             # Debugging mode
             if config.get("WANDB_MODE") != "disabled":
@@ -288,8 +294,9 @@ def make_train(config):
                                 for k, v in metrics.items()
                             }
                         )
-                    wandb.log(metrics)
+                    wandb.log(metrics, step=int(metrics["env_step"]))
                 metrics = {k: jnp.mean(v) for k, v in metric.items()}
+                metrics["env_step"] = env_step
                 jax.debug.callback(callback, metrics, original_rng)
 
             runner_state = (train_state, env_state, last_obs, rng)
@@ -298,7 +305,7 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         runner_state = (train_state, env_state, obsv, _rng)
         runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config["NUM_UPDATES"]
+            _update_step, runner_state, jnp.arange(config["NUM_UPDATES"])
         )
         return {"runner_state": runner_state, "metrics": metric}
 
